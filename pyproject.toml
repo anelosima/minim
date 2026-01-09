@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "metac-bot-template"
+name = "minim"
 version = "0.1.0"
 description = ""
-authors = ["Vasile Popescu <elisescu@elisescu.com>"]
+authors = ["anelosima"]
 readme = "README.md"
 package-mode = false
 
