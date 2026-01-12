@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class Minim(SpringTemplateBot2026):
     """
-    This is a minimally modified bot for the Metaculus AI forecasting tournaments. In particular, the modification concerns the procedure to research a question; instead of calling a research API directly, this bot passes off the work to a dedicated researcher class, MinimResearcher. See that class for details.
+    This is a minimally modified bot for the Metaculus AI forecasting tournaments. In particular, the present modification concerns the procedure to research a question; instead of calling a research API directly, this bot passes off the work to a dedicated researcher class, MinimResearcher. See that class for details.
     """
 
     _max_concurrent_questions = 1
@@ -83,15 +83,13 @@ if __name__ == "__main__":
     litellm_logger.setLevel(logging.WARNING)
     litellm_logger.propagate = False
 
-    parser = argparse.ArgumentParser(
-        description="Run the TemplateBot forecasting system"
-    )
+    parser = argparse.ArgumentParser(description="Run the Minim forecasting system")
     parser.add_argument(
         "--mode",
         type=str,
         choices=["tournament", "metaculus_cup", "test_questions"],
-        default="tournament",
-        help="Specify the run mode (default: tournament)",
+        # default="tournament",
+        help="Specify the run mode",  # (default: tournament)",
     )
     args = parser.parse_args()
     run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
@@ -106,12 +104,12 @@ if __name__ == "__main__":
         predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
-        folder_to_save_reports_to=None,
+        folder_to_save_reports_to="tests",  # None,
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
         llms={
             "default": GeneralLlm(  # settings should be from metac-o3
-                model="o3",
+                model="o3",  # o3 is the best reasoning LLM based on the metric of verified performance which is from a company offering API credits for use in the AI benchmark. The alternative would be the latest Gemini.
                 temperature=1,
                 reasoning_effort="medium",
                 timeout=60 * 8,
@@ -150,9 +148,9 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-            "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            # "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            # "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            # "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
         minim_bot.skip_previously_forecasted_questions = False
         questions = [
