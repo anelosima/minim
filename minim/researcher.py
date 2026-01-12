@@ -79,6 +79,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         self.parser = parser
         self.relevance_checker = relevance_checker
         self.question = question
+        self._release_delay_task = None
 
     async def check_summary(self, query: str, article: Article) -> bool:
         prompt = clean_indents(
@@ -117,7 +118,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
             num_validation_samples=2,
         )
         logger.info(
-            'Article with headline "{article.eng_title}" deemed '
+            f'Article with headline "{article.eng_title}" deemed '
             + ("relevant" if relevant else "irrelevant")
             + "."
         )
@@ -127,14 +128,14 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         """
         Use the AskNews `news` endpoint to get news context for your query. Remove irrelevant news. This code is mostly taken directly from the function of the same name in the parent class.
         """
-        async with self._concurrency_limiter:
+        self._concurrency_limiter.acquire()
+        try:
             async with AsyncAskNewsSDK(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 api_key=self.api_key,
                 scopes=set(["news"]),
             ) as ask:
-                await asyncio.sleep(self._default_rate_limit)
                 hot_response = await ask.news.search_news(
                     query=query,  # your natural language query
                     n_articles=6,  # control the number of articles to include in the context, originally 5
@@ -170,4 +171,17 @@ class MinimAskNewsSearcher(AskNewsSearcher):
 
                 if all_articles:
                     formatted_articles = self._format_articles(relevant_articles)
+
                 return formatted_articles
+        finally:  # this block is to allow rate limiting between calls
+
+            async def release_on_timer(t: int | float) -> None:
+                try:
+                    await asyncio.sleep(t)
+                finally:
+                    self._concurrency_limiter.release()
+
+            task = asyncio.create_task(
+                release_on_timer(t=self._default_rate_limit * 5)
+            )  # *5 for archive calls
+            self._release_delay_task = task  # no need to discard when it's done, since only one reference will ever be held

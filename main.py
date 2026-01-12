@@ -1,3 +1,4 @@
+from litellm import num_retries
 import argparse
 import asyncio
 import logging
@@ -11,6 +12,7 @@ from forecasting_tools import (
     MetaculusQuestion,
     clean_indents,
     SpringTemplateBot2026,
+    ForecastReport,
 )
 
 from minim.researcher import MinimResearcher
@@ -45,7 +47,7 @@ class Minim(SpringTemplateBot2026):
         extra_metadata_in_explanation: bool = False,
         required_successful_predictions: float = 0.5,
     ) -> None:
-        ForecastBot.__init__(
+        SpringTemplateBot2026.__init__(
             self,
             research_reports_per_question=research_reports_per_question,
             predictions_per_research_report=predictions_per_research_report,
@@ -59,6 +61,9 @@ class Minim(SpringTemplateBot2026):
             extra_metadata_in_explanation=extra_metadata_in_explanation,
             required_successful_predictions=required_successful_predictions,
         )
+
+        assert self.get_llm("asknews_researcher") is not None
+        assert self.get_llm("relevance_checker") is not None
 
         self.researcher = MinimResearcher(
             parser=self.get_llm("parser", "llm"),
@@ -83,7 +88,7 @@ if __name__ == "__main__":
     litellm_logger.setLevel(logging.WARNING)
     litellm_logger.propagate = False
 
-    parser = argparse.ArgumentParser(description="Run the Minim forecasting system")
+    parser = argparse.ArgumentParser(description="Run the minim forecasting system")
     parser.add_argument(
         "--mode",
         type=str,
@@ -113,6 +118,7 @@ if __name__ == "__main__":
                 temperature=1,
                 reasoning_effort="medium",
                 timeout=60 * 8,
+                allowed_tries=20,
             ),
             "summarizer": "openai/gpt-4o-mini",
             "asknews_researcher": "asknews/news-summaries",
@@ -148,7 +154,7 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            # "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             # "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
             # "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
