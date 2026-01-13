@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+from aiolimiter import AsyncLimiter
 
 try:
     from asknews_sdk.dto.news import SearchResponseDictItem
@@ -29,6 +30,8 @@ from forecasting_tools import (
     MetaculusQuestion,
 )
 
+from minim.ratelimiter import UnboundedAsyncLimiter
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,12 +40,15 @@ class MinimResearcher:
     This is the researcher for the minim forecasting bot. TODO: add details
     """
 
+    _asknews_rate_limit = 12.0
+
     def __init__(
         self, parser: GeneralLlm, relevance_checker: GeneralLlm, asknews_researcher: str
     ):
         self.parser = parser
         self.relevance_checker = relevance_checker
         self.asknews_researcher = asknews_researcher
+        self.asknews_limiter = UnboundedAsyncLimiter(1, self._asknews_rate_limit)
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         research = ""
@@ -65,21 +71,19 @@ class MinimAskNewsSearcher(AskNewsSearcher):
     This is a modification of the AskNewsSearcher in forecast_tools which should omit irrelevant articles.
     """
 
-    _max_concurrent_requests = 1  # rate limit for api
-    _concurrency_limiter = asyncio.Semaphore(_max_concurrent_requests)
-
     def __init__(
         self,
         *,
         parser: GeneralLlm,
         relevance_checker: GeneralLlm,
         question: MetaculusQuestion,
+        rate_limiter: UnboundedAsyncLimiter,
     ):
         AskNewsSearcher.__init__(self)
         self.parser = parser
         self.relevance_checker = relevance_checker
         self.question = question
-        self._release_delay_task = None
+        self.rate_limiter = rate_limiter
 
     async def check_summary(self, query: str, article: Article) -> bool:
         prompt = clean_indents(
@@ -128,60 +132,44 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         """
         Use the AskNews `news` endpoint to get news context for your query. Remove irrelevant news. This code is mostly taken directly from the function of the same name in the parent class.
         """
-        self._concurrency_limiter.acquire()
-        try:
-            async with AsyncAskNewsSDK(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                api_key=self.api_key,
-                scopes=set(["news"]),
-            ) as ask:
-                hot_response = await ask.news.search_news(
-                    query=query,  # your natural language query
-                    n_articles=6,  # control the number of articles to include in the context, originally 5
-                    return_type="both",
-                    strategy="latest news",  # enforces looking at the latest news only
-                )
+        async with AsyncAskNewsSDK(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            api_key=self.api_key,
+            scopes=set(["news"]),
+        ) as ask:
+            await self.rate_limiter.acquire(1)
+            hot_response = await ask.news.search_news(
+                query=query,  # your natural language query
+                n_articles=6,  # control the number of articles to include in the context, originally 5
+                return_type="both",
+                strategy="latest news",  # enforces looking at the latest news only
+            )
 
-                await asyncio.sleep(
-                    self._default_rate_limit
-                )  # AskNews free tier has a ratelimit of 1 call per 10 seconds
-
-                # get context from the "historical" database that contains a news archive going back to 2023
-                historical_response = await ask.news.search_news(
-                    query=query,
-                    n_articles=10,
-                    return_type="both",
-                    strategy="news knowledge",  # looks for relevant news within the past 160 days
-                )
-                hot_articles = hot_response.as_dicts
-                historical_articles = historical_response.as_dicts
-                all_articles = (hot_articles if hot_articles else []) + (
-                    historical_articles if historical_articles else []
-                )
-                relevant_articles = []
-                for article in all_articles:
-                    try:
-                        if await self.check_summary(query, article):
-                            relevant_articles.append(article)
-                    except Exception as e:
-                        relevant_articles.append(article)
-
-                formatted_articles = ""
-
-                if all_articles:
-                    formatted_articles = self._format_articles(relevant_articles)
-
-                return formatted_articles
-        finally:  # this block is to allow rate limiting between calls
-
-            async def release_on_timer(t: int | float) -> None:
+            # get context from the "historical" database that contains a news archive going back to 2023
+            await self.rate_limiter.acquire(5)
+            historical_response = await ask.news.search_news(
+                query=query,
+                n_articles=10,
+                return_type="both",
+                strategy="news knowledge",  # looks for relevant news within the past 160 days
+            )
+            hot_articles = hot_response.as_dicts
+            historical_articles = historical_response.as_dicts
+            all_articles = (hot_articles if hot_articles else []) + (
+                historical_articles if historical_articles else []
+            )
+            relevant_articles = []
+            for article in all_articles:
                 try:
-                    await asyncio.sleep(t)
-                finally:
-                    self._concurrency_limiter.release()
+                    if await self.check_summary(query, article):
+                        relevant_articles.append(article)
+                except Exception as e:
+                    relevant_articles.append(article)
 
-            task = asyncio.create_task(
-                release_on_timer(t=self._default_rate_limit * 5)
-            )  # *5 for archive calls
-            self._release_delay_task = task  # no need to discard when it's done, since only one reference will ever be held
+            formatted_articles = ""
+
+            if all_articles:
+                formatted_articles = self._format_articles(relevant_articles)
+
+            return formatted_articles

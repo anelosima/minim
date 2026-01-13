@@ -1,80 +1,25 @@
 from litellm import num_retries
 import argparse
 import asyncio
+from aiolimiter import AsyncLimiter
 import logging
 import dotenv
 from typing import Literal
 
 from forecasting_tools import (
-    ForecastBot,
     GeneralLlm,
     MetaculusClient,
     MetaculusQuestion,
-    clean_indents,
-    SpringTemplateBot2026,
     ForecastReport,
 )
 
 from minim.researcher import MinimResearcher
+from minim.minim import Minim
+from minim.ratelimiter import RateLimitedLlm
+
 
 dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
-
-
-class Minim(SpringTemplateBot2026):
-    """
-    This is a minimally modified bot for the Metaculus AI forecasting tournaments. In particular, the present modification concerns the procedure to research a question; instead of calling a research API directly, this bot passes off the work to a dedicated researcher class, MinimResearcher. See that class for details.
-    """
-
-    _max_concurrent_questions = 1
-    _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
-    _structure_output_validation_samples = 2
-
-    def __init__(
-        self,
-        *,
-        research_reports_per_question: int = 1,
-        predictions_per_research_report: int = 1,
-        use_research_summary_to_forecast: bool = False,
-        publish_reports_to_metaculus: bool = False,
-        folder_to_save_reports_to: str | None = None,
-        skip_previously_forecasted_questions: bool = False,
-        llms: (
-            dict[str, str | GeneralLlm | None] | None
-        ) = None,  # Default LLMs are used if llms is set to None
-        enable_summarize_research: bool = True,
-        parameters_to_exclude_from_config_dict: list[str] | None = None,
-        extra_metadata_in_explanation: bool = False,
-        required_successful_predictions: float = 0.5,
-    ) -> None:
-        SpringTemplateBot2026.__init__(
-            self,
-            research_reports_per_question=research_reports_per_question,
-            predictions_per_research_report=predictions_per_research_report,
-            use_research_summary_to_forecast=use_research_summary_to_forecast,
-            publish_reports_to_metaculus=publish_reports_to_metaculus,
-            folder_to_save_reports_to=folder_to_save_reports_to,
-            skip_previously_forecasted_questions=skip_previously_forecasted_questions,
-            llms=llms,
-            enable_summarize_research=enable_summarize_research,
-            parameters_to_exclude_from_config_dict=parameters_to_exclude_from_config_dict,
-            extra_metadata_in_explanation=extra_metadata_in_explanation,
-            required_successful_predictions=required_successful_predictions,
-        )
-
-        assert self.get_llm("asknews_researcher") is not None
-        assert self.get_llm("relevance_checker") is not None
-
-        self.researcher = MinimResearcher(
-            parser=self.get_llm("parser", "llm"),
-            relevance_checker=self.get_llm("relevance_checker", "llm"),
-            asknews_researcher=self.get_llm("asknews_researcher", "string_name"),
-        )  # currently this means that any initialisation without a relevance_checker and an asknews_researcher will fail; they have no defaults
-
-    async def run_research(self, question: MetaculusQuestion) -> str:
-        research = await self.researcher.run_research(question)
-        logger.info(f"Found Research for URL {question.page_url}:\n{research}")
-        return research
 
 
 if __name__ == "__main__":
@@ -113,8 +58,9 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
         llms={
-            "default": GeneralLlm(  # settings should be from metac-o3
+            "default": RateLimitedLlm(  # settings should be from metac-o3
                 model="o3",  # o3 is the best reasoning LLM based on the metric of verified performance which is from a company offering API credits for use in the AI benchmark. The alternative would be the latest Gemini.
+                rate_limiter=AsyncLimiter(500),
                 temperature=1,
                 reasoning_effort="medium",
                 timeout=60 * 8,
