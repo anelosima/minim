@@ -60,6 +60,7 @@ class MinimResearcher:
             parser=self.parser,
             relevance_checker=self.relevance_checker,
             question=question,
+            rate_limiter=self.asknews_limiter,
         ).call_preconfigured_version(self.asknews_researcher, asknewsquery)
 
         return asknewsresearch

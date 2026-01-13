@@ -1,5 +1,7 @@
 ###  Specific to Project ###
 benchmarks/
+tests/
+logs/
 sandbox.py
 
 
@@ -171,4 +173,3 @@ cython_debug/
 
 # MacOS
 .DS_Store
-/tests/
