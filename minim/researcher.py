@@ -222,6 +222,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
     def _write_report(self, report: List[SearchResponseDictItem]):
         if self.report_dir is not None and report:
             path = self._get_file_path()
+            file_manipulation._create_directory_if_needed(path)
             with open(path, "w") as file:
                 timestamped_report = TimestampedAskNewsSearch(
                     timestamp=time.time(), report=report
