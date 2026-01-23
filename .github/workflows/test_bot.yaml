@@ -40,6 +40,7 @@ jobs:
           workflow_search: true
           workflow_conclusion: success
           name: research
+          if_no_artifact_found: warn
       - name: Run bot
         run: |
           poetry run python main.py --mode test_questions --reportdir logs --researchdir research
