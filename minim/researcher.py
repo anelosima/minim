@@ -1,6 +1,11 @@
+from sklearn.neighbors.tests.test_neighbors import test_k_and_radius_neighbors_X_None
 import os
 import asyncio
 import logging
+import datetime
+import time
+import json
+from typing import List, Optional
 from aiolimiter import AsyncLimiter
 
 try:
@@ -21,6 +26,10 @@ try:
 except ImportError:
     pass
 
+from pydantic import BaseModel
+
+from forecasting_tools.util.jsonable import Jsonable
+from forecasting_tools.util import file_manipulation
 
 from forecasting_tools import (
     structure_output,
@@ -34,6 +43,13 @@ from minim.ratelimiter import UnboundedAsyncLimiter
 
 logger = logging.getLogger(__name__)
 
+FRESHNESS_THRESHOLD_DAYS = 7
+
+
+class TimestampedAskNewsSearch(BaseModel):
+    timestamp: float
+    report: List[SearchResponseDictItem]
+
 
 class MinimResearcher:
     """
@@ -43,12 +59,17 @@ class MinimResearcher:
     _asknews_rate_limit = 12.0
 
     def __init__(
-        self, parser: GeneralLlm, relevance_checker: GeneralLlm, asknews_researcher: str
+        self,
+        parser: GeneralLlm,
+        relevance_checker: GeneralLlm,
+        asknews_researcher: str,
+        report_dir: str | None = None,
     ):
         self.parser = parser
         self.relevance_checker = relevance_checker
         self.asknews_researcher = asknews_researcher
         self.asknews_limiter = UnboundedAsyncLimiter(1, self._asknews_rate_limit)
+        self.report_dir = report_dir
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         research = ""
@@ -61,6 +82,7 @@ class MinimResearcher:
             relevance_checker=self.relevance_checker,
             question=question,
             rate_limiter=self.asknews_limiter,
+            report_dir=self.report_dir,
         ).call_preconfigured_version(self.asknews_researcher, asknewsquery)
 
         return asknewsresearch
@@ -79,12 +101,14 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         relevance_checker: GeneralLlm,
         question: MetaculusQuestion,
         rate_limiter: UnboundedAsyncLimiter,
+        report_dir: str | None = None,
     ):
         AskNewsSearcher.__init__(self)
         self.parser = parser
         self.relevance_checker = relevance_checker
         self.question = question
         self.rate_limiter = rate_limiter
+        self.report_dir = report_dir
 
     async def check_summary(self, query: str, article: Article) -> bool:
         prompt = clean_indents(
@@ -133,44 +157,78 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         """
         Use the AskNews `news` endpoint to get news context for your query. Remove irrelevant news. This code is mostly taken directly from the function of the same name in the parent class.
         """
-        async with AsyncAskNewsSDK(
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            api_key=self.api_key,
-            scopes=set(["news"]),
-        ) as ask:
-            await self.rate_limiter.acquire(1)
-            hot_response = await ask.news.search_news(
-                query=query,  # your natural language query
-                n_articles=6,  # control the number of articles to include in the context, originally 5
-                return_type="both",
-                strategy="latest news",  # enforces looking at the latest news only
-            )
+        # AskNews has the harshest monthly API limits; if we want to run tests multiple times, it would be very good if we could reuse reports
+        last_report: TimestampedAskNewsSearch | None = self._check_for_report(
+            self.question
+        )
+        report = []
+        if last_report is None or self._check_report_stale(last_report):
+            async with AsyncAskNewsSDK(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                api_key=self.api_key,
+                scopes=set(["news"]),
+            ) as ask:
+                await self.rate_limiter.acquire(1)
+                hot_response = await ask.news.search_news(
+                    query=query,  # your natural language query
+                    n_articles=6,  # control the number of articles to include in the context, originally 5
+                    return_type="both",
+                    strategy="latest news",  # enforces looking at the latest news only
+                )
 
-            # get context from the "historical" database that contains a news archive going back to 2023
-            await self.rate_limiter.acquire(5)
-            historical_response = await ask.news.search_news(
-                query=query,
-                n_articles=10,
-                return_type="both",
-                strategy="news knowledge",  # looks for relevant news within the past 160 days
-            )
-            hot_articles = hot_response.as_dicts
-            historical_articles = historical_response.as_dicts
-            all_articles = (hot_articles if hot_articles else []) + (
-                historical_articles if historical_articles else []
-            )
-            relevant_articles = []
-            for article in all_articles:
-                try:
-                    if await self.check_summary(query, article):
-                        relevant_articles.append(article)
-                except Exception as e:
+                # get context from the "historical" database that contains a news archive going back to 2023
+                await self.rate_limiter.acquire(5)
+                historical_response = await ask.news.search_news(
+                    query=query,
+                    n_articles=10,
+                    return_type="both",
+                    strategy="news knowledge",  # looks for relevant news within the past 160 days
+                )
+                hot_articles = hot_response.as_dicts
+                historical_articles = historical_response.as_dicts
+                report = (hot_articles if hot_articles else []) + (
+                    historical_articles if historical_articles else []
+                )
+        else:
+            report = last_report.report
+
+        relevant_articles = []
+        for article in report:
+            try:
+                if await self.check_summary(query, article):
                     relevant_articles.append(article)
+            except Exception as e:
+                relevant_articles.append(article)
 
-            formatted_articles = ""
+        formatted_articles = self._format_articles(relevant_articles)
 
-            if all_articles:
-                formatted_articles = self._format_articles(relevant_articles)
+        return formatted_articles
 
-            return formatted_articles
+    def _check_for_report(
+        self, question: MetaculusQuestion
+    ) -> TimestampedAskNewsSearch | None:
+        if self.report_dir is not None:
+            path = self._get_file_path_from_question(question)
+            if os.path.exists(path):
+                with open(path) as file:
+                    report_json = json.load(file)
+                    report_str = json.dumps(report_json)
+                    report = TimestampedAskNewsSearch.model_validate_json(report_str)
+                    return report
+            else:
+                return None
+        else:
+            return None
+
+    def _get_file_path_from_question(self, question: MetaculusQuestion) -> str:
+        assert self.report_dir is not None, "Folder to save research to is not set"
+
+        return os.path.join(
+            self.report_dir, f"{question.id_of_question}_asknews_search.json"
+        )
+
+    def _check_report_stale(self, last_report: TimestampedAskNewsSearch) -> bool:
+        report_time = datetime.datetime.fromtimestamp(last_report.timestamp)
+        current_time = datetime.datetime.fromtimestamp(time.time())
+        return (current_time - report_time).days >= FRESHNESS_THRESHOLD_DAYS

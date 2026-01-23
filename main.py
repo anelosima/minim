@@ -41,6 +41,18 @@ if __name__ == "__main__":
         # default="tournament",
         help="Specify the run mode",  # (default: tournament)",
     )
+    parser.add_argument(
+        "--reportdir",
+        type=str,
+        default=None,
+        help="Specify the folder to save reports to",
+    )
+    parser.add_argument(
+        "--researchdir",
+        type=str,
+        default=None,
+        help="Specify the folder to save research to",
+    )
     args = parser.parse_args()
     run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
     assert run_mode in [
@@ -48,27 +60,44 @@ if __name__ == "__main__":
         "metaculus_cup",
         "test_questions",
     ], "Invalid run mode"
+    reports_dir: str | None = args.reportdir
+    research_dir: str | None = args.researchdir
+
+    reasoner = RateLimitedLlm(
+        model="openrouter/openai/gpt-5.2",
+        rate_limiter=AsyncLimiter(500),
+        reasoning_effort="high",
+        temperature=0.3,
+        timeout=15 * 60,  # settings should be from metac-gpt5.2-high
+    )
+    minimodel = GeneralLlm(model="openrouter/openai/gpt-4o-mini")
+    asknews_researcher = "asknews/news-summaries"
+
+    researcher = MinimResearcher(
+        parser=minimodel,
+        relevance_checker=minimodel,
+        asknews_researcher=asknews_researcher,
+        report_dir=research_dir,
+    )
 
     minim_bot = Minim(
+        researcher=researcher,
         research_reports_per_question=1,
         predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
-        folder_to_save_reports_to="logs",  # None,
+        folder_to_save_reports_to=reports_dir,  # folder is created if it i
         skip_previously_forecasted_questions=True,
         extra_metadata_in_explanation=True,
         llms={
             "default": RateLimitedLlm(
-                model="openai/gpt-5.2",
+                model="openrouter/openai/gpt-5.2",
                 rate_limiter=AsyncLimiter(500),
                 reasoning_effort="high",
                 temperature=0.3,
                 timeout=15 * 60,  # settings should be from metac-gpt5.2-high
             ),
-            "summarizer": "openai/gpt-4o-mini",
-            "asknews_researcher": "asknews/news-summaries",
-            "relevance_checker": "openai/gpt-4o-mini",
-            "parser": "openai/gpt-4o-mini",
+            "summarizer": minimodel,
         },
     )
 
