@@ -23,6 +23,7 @@ class Minim(SpringTemplateBot2026):
     def __init__(
         self,
         *,
+        researcher: MinimResearcher,
         research_reports_per_question: int = 1,
         predictions_per_research_report: int = 1,
         use_research_summary_to_forecast: bool = False,
@@ -52,18 +53,7 @@ class Minim(SpringTemplateBot2026):
             required_successful_predictions=required_successful_predictions,
         )
 
-        assert (
-            self.get_llm("asknews_researcher") is not None
-        ), "minim cannot currently be created without an AskNews researcher"
-        assert (
-            self.get_llm("relevance_checker") is not None
-        ), "minim cannot currently be created without a relevance checker"
-
-        self.researcher = MinimResearcher(
-            parser=self.get_llm("parser", "llm"),
-            relevance_checker=self.get_llm("relevance_checker", "llm"),
-            asknews_researcher=self.get_llm("asknews_researcher", "string_name"),
-        )
+        self.researcher = researcher
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         research = await self.researcher.run_research(question)
