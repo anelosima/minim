@@ -1,8 +1,9 @@
+from faker.sphinx.documentor import _write
 from sklearn.neighbors.tests.test_neighbors import test_k_and_radius_neighbors_X_None
 import os
 import asyncio
 import logging
-import datetime
+from datetime import datetime
 import time
 import json
 from typing import List, Optional
@@ -42,8 +43,6 @@ from forecasting_tools import (
 from minim.ratelimiter import UnboundedAsyncLimiter
 
 logger = logging.getLogger(__name__)
-
-FRESHNESS_THRESHOLD_DAYS = 7
 
 
 class TimestampedAskNewsSearch(BaseModel):
@@ -93,6 +92,8 @@ class MinimAskNewsSearcher(AskNewsSearcher):
     """
     This is a modification of the AskNewsSearcher in forecast_tools which should omit irrelevant articles.
     """
+
+    freshness_threshold_days = 7
 
     def __init__(
         self,
@@ -158,9 +159,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         Use the AskNews `news` endpoint to get news context for your query. Remove irrelevant news. This code is mostly taken directly from the function of the same name in the parent class.
         """
         # AskNews has the harshest monthly API limits; if we want to run tests multiple times, it would be very good if we could reuse reports
-        last_report: TimestampedAskNewsSearch | None = self._check_for_report(
-            self.question
-        )
+        last_report: TimestampedAskNewsSearch | None = self._check_for_report()
         report = []
         if last_report is None or self._check_report_stale(last_report):
             async with AsyncAskNewsSDK(
@@ -190,6 +189,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
                 report = (hot_articles if hot_articles else []) + (
                     historical_articles if historical_articles else []
                 )
+                self._write_report(report)
         else:
             report = last_report.report
 
@@ -205,11 +205,9 @@ class MinimAskNewsSearcher(AskNewsSearcher):
 
         return formatted_articles
 
-    def _check_for_report(
-        self, question: MetaculusQuestion
-    ) -> TimestampedAskNewsSearch | None:
+    def _check_for_report(self) -> TimestampedAskNewsSearch | None:
         if self.report_dir is not None:
-            path = self._get_file_path_from_question(question)
+            path = self._get_file_path()
             if os.path.exists(path):
                 with open(path) as file:
                     report_json = json.load(file)
@@ -221,14 +219,23 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         else:
             return None
 
-    def _get_file_path_from_question(self, question: MetaculusQuestion) -> str:
+    def _write_report(self, report: List[SearchResponseDictItem]):
+        if self.report_dir is not None and report:
+            path = self._get_file_path()
+            with open(path, "w") as file:
+                timestamped_report = TimestampedAskNewsSearch(
+                    timestamp=time.time(), report=report
+                )
+                file.write(timestamped_report.model_dump_json())
+
+    def _get_file_path(self) -> str:
         assert self.report_dir is not None, "Folder to save research to is not set"
 
         return os.path.join(
-            self.report_dir, f"{question.id_of_question}_asknews_search.json"
+            self.report_dir, f"{self.question.id_of_question}_asknews_search.json"
         )
 
     def _check_report_stale(self, last_report: TimestampedAskNewsSearch) -> bool:
-        report_time = datetime.datetime.fromtimestamp(last_report.timestamp)
-        current_time = datetime.datetime.fromtimestamp(time.time())
-        return (current_time - report_time).days >= FRESHNESS_THRESHOLD_DAYS
+        report_time = datetime.fromtimestamp(last_report.timestamp)
+        current_time = datetime.fromtimestamp(time.time())
+        return (current_time - report_time).days >= self.freshness_threshold_days
