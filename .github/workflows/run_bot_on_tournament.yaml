@@ -39,7 +39,7 @@ jobs:
         run: poetry install --no-interaction --no-root
       - name: Run bot
         run: |
-          poetry run python main.py -- --mode tournament --reportdir logs
+          poetry run python main.py -- --mode tournament --reportdir logs --researchdir research
         # this reads the environment variables from the github repository.
         # Store under Settings --> Secrets and variables --> Actions
         env:
