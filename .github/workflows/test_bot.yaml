@@ -35,6 +35,7 @@ jobs:
       #     key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
       - name: Install dependencies
         run: poetry install --no-interaction --no-root
+      - uses: actions/download-artifact@v5
       - name: Run bot
         run: |
           poetry run python main.py --mode test_questions --reportdir logs --researchdir research
@@ -49,3 +50,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASKNEWS_CLIENT_ID: ${{ secrets.ASKNEWS_CLIENT_ID }}
           ASKNEWS_SECRET: ${{ secrets.ASKNEWS_SECRET }}
+      - uses: actions/upload-artifact@v5
+        with:
+          name: report-logs
+          path: logs/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-logs
+          path: research/
