@@ -74,6 +74,8 @@ class MinimResearcher:
         self.asknews_researcher = asknews_researcher
         self.asknews_limiter = UnboundedAsyncLimiter(1, self._asknews_rate_limit)
         self.report_dir = report_dir
+        self.check_query = check_query
+        self.check_relevance = check_relevance
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         research = ""
