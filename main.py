@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     researcher = MinimResearcher(
         parser=minimodel,
-        relevance_checker=minimodel,
+        general_model=minimodel,
         asknews_researcher=asknews_researcher,
         report_dir=research_dir,
     )
