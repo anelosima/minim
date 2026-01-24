@@ -122,7 +122,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         self.check_query = check_query
         self.check_relevance = check_relevance
 
-    async def check_query(self) -> bool:
+    async def do_check_query(self) -> bool:
         prompt = clean_indents(
             f"""
             You are an assistant to a superforecaster.
@@ -262,8 +262,8 @@ class MinimAskNewsSearcher(AskNewsSearcher):
                 historical_query = self.question.question_text
                 hot_queries = []
                 question_text_acceptable = True
-                if check_query:
-                    question_text_acceptable = await self.check_query()
+                if self.check_query:
+                    question_text_acceptable = await self.do_check_query()
                 # NOTE: the template bot includes a full prompt. Past template bots, which have done well, have not; motivated by a desire not to fix what isn't broken, I've reverted back to including just the question. THIS CAUSES PROBLEMS, but they have empirically not been enough to make the bot not work. The acceptability check and query reconstruction is an attempt to fix some of the problems.
 
                 if not question_text_acceptable:
