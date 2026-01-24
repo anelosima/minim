@@ -122,7 +122,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         self.check_query = check_query
         self.check_relevance = check_relevance
 
-    async def do_check_query(self) -> bool:
+    async def _do_check_query(self) -> bool:
         prompt = clean_indents(
             f"""
             You are an assistant to a superforecaster.
@@ -158,7 +158,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
 
         return query_acceptable
 
-    async def produce_queries(self) -> tuple[str, list[str]]:
+    async def _produce_queries(self) -> tuple[str, list[str]]:
         prompt = clean_indents(
             f"""
             You are an assistant to a superforecaster.
@@ -202,7 +202,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
             logger.info(f"Recent search queries:\n" + "\n".join(recent_queries))
         return (historical_query, recent_queries[:20])
 
-    async def check_summary(self, query: str, article: Article) -> bool:
+    async def _check_summary(self, query: str, article: Article) -> bool:
         prompt = clean_indents(
             f"""
             You are an assistant to a superforecaster.
@@ -263,36 +263,42 @@ class MinimAskNewsSearcher(AskNewsSearcher):
                 hot_queries = []
                 question_text_acceptable = True
                 if self.check_query:
-                    question_text_acceptable = await self.do_check_query()
+                    question_text_acceptable = await self._do_check_query()
                 # NOTE: the template bot includes a full prompt. Past template bots, which have done well, have not; motivated by a desire not to fix what isn't broken, I've reverted back to including just the question. THIS CAUSES PROBLEMS, but they have empirically not been enough to make the bot not work. The acceptability check and query reconstruction is an attempt to fix some of the problems.
 
                 if not question_text_acceptable:
-                    (historical_query, hot_queries) = await self.produce_queries()
+                    (historical_query, hot_queries) = await self._produce_queries()
 
                 await self.rate_limiter.acquire(1)
-                hist_hot_response = await ask.news.search_news(
-                    query=query,  # your natural language query
-                    n_articles=6,  # control the number of articles to include in the context, originally 5
-                    return_type="both",
-                    strategy="latest news",  # enforces looking at the latest news only
+                hist_hot_response = (
+                    await ask.news.search_news(
+                        query=query,  # your natural language query
+                        n_articles=6,  # control the number of articles to include in the context, originally 5
+                        return_type="both",
+                        strategy="latest news",  # enforces looking at the latest news only
+                    )
                 ).as_dicts
                 # get context from the "historical" database that contains a news archive going back to 2023
                 await self.rate_limiter.acquire(5)
-                hist_full_response = await ask.news.search_news(
-                    query=query,
-                    n_articles=10,
-                    return_type="both",
-                    strategy="news knowledge",  # looks for relevant news within the past 160 days
+                hist_full_response = (
+                    await ask.news.search_news(
+                        query=query,
+                        n_articles=10,
+                        return_type="both",
+                        strategy="news knowledge",  # looks for relevant news within the past 160 days
+                    )
                 ).as_dicts
                 hot_articles = hist_hot_response if hist_full_response else []
                 historical_articles = hist_full_response if hist_full_response else []
                 for query in hot_queries:
                     await self.rate_limiter.acquire(1)
-                    hot_response = await ask.news.search_news(
-                        query=query,
-                        n_articles=5,
-                        return_type="both",
-                        strategy="latest news",
+                    hot_response = (
+                        await ask.news.search_news(
+                            query=query,
+                            n_articles=5,
+                            return_type="both",
+                            strategy="latest news",
+                        )
                     ).as_dicts
                     hot_articles.extend(hot_response if hot_response else [])
                 report = hot_articles + historical_articles
@@ -307,7 +313,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         if self.check_relevance:
             for article in report:
                 try:
-                    if await self.check_summary(query, article):
+                    if await self._check_summary(query, article):
                         relevant_articles.append(article)
                 except Exception as e:
                     relevant_articles.append(article)
