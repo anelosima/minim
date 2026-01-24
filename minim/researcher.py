@@ -52,9 +52,9 @@ class TimestampedAskNewsSearch(BaseModel):
 class MinimResearcher:
     """
     This is the researcher for the minim forecasting bot. Currently, it follows the following procedure to produce research:
-    1. Check whether the question text is an acceptable query for the AskNews API.
+    1. (Potentially) check whether the question text is an acceptable query for the AskNews API.
     2. If not, produce better queries and search with those; otherwise, search with the question text.
-    3. Remove irrelevant articles.
+    3. (Potentially) remove irrelevant articles.
     4. Return all relevant articles.
     """
 
@@ -66,6 +66,8 @@ class MinimResearcher:
         general_model: GeneralLlm,
         asknews_researcher: str,
         report_dir: str | None = None,
+        check_query: bool = False,
+        check_relevance: bool = True,
     ):
         self.parser = parser
         self.general_model = general_model
@@ -83,6 +85,8 @@ class MinimResearcher:
             question=question,
             rate_limiter=self.asknews_limiter,
             report_dir=self.report_dir,
+            check_query=self.check_query,
+            check_relevance=self.check_relevance,
         ).call_preconfigured_version(self.asknews_researcher, asknewsquery)
 
         return asknewsresearch
@@ -104,6 +108,8 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         question: MetaculusQuestion,
         rate_limiter: UnboundedAsyncLimiter,
         report_dir: str | None = None,
+        check_query: bool,
+        check_relevance: bool,
     ):
         AskNewsSearcher.__init__(self)
         self.parser = parser
@@ -111,6 +117,8 @@ class MinimAskNewsSearcher(AskNewsSearcher):
         self.question = question
         self.rate_limiter = rate_limiter
         self.report_dir = report_dir
+        self.check_query = check_query
+        self.check_relevance = check_relevance
 
     async def check_query(self) -> bool:
         prompt = clean_indents(
@@ -251,8 +259,9 @@ class MinimAskNewsSearcher(AskNewsSearcher):
             ) as ask:
                 historical_query = self.question.question_text
                 hot_queries = []
-
-                question_text_acceptable = await self.check_query()
+                question_text_acceptable = True
+                if check_query:
+                    question_text_acceptable = await self.check_query()
                 # NOTE: the template bot includes a full prompt. Past template bots, which have done well, have not; motivated by a desire not to fix what isn't broken, I've reverted back to including just the question. THIS CAUSES PROBLEMS, but they have empirically not been enough to make the bot not work. The acceptability check and query reconstruction is an attempt to fix some of the problems.
 
                 if not question_text_acceptable:
@@ -293,12 +302,15 @@ class MinimAskNewsSearcher(AskNewsSearcher):
             report = last_report.report
 
         relevant_articles = []
-        for article in report:
-            try:
-                if await self.check_summary(query, article):
+        if self.check_relevance:
+            for article in report:
+                try:
+                    if await self.check_summary(query, article):
+                        relevant_articles.append(article)
+                except Exception as e:
                     relevant_articles.append(article)
-            except Exception as e:
-                relevant_articles.append(article)
+        else:
+            relevant_articles = report
 
         formatted_articles = self._format_articles(relevant_articles)
 
