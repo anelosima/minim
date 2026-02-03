@@ -58,7 +58,7 @@ class MinimResearcher:
     4. Return all relevant articles.
     """
 
-    _asknews_rate_limit = 12.0
+    _asknews_rate_limit = 20.0  # Ran into a rate limit issue with 12s once?
 
     def __init__(
         self,
