@@ -132,9 +132,7 @@ class Minim(SpringTemplateBot2026):
         question: T_Question,
         prompt_head: str,
         prompt_tail: str,
-        forecast_fun: Callable[
-            [T_Question, str], CoroutineType[Any, Any, ReasonedPrediction]
-        ],
+        forecast_fun: Callable[[T_Question, str], Awaitable[ReasonedPrediction]],
     ) -> ReasonedPrediction:
 
         prediction = await forecast_fun(question, "\n".join([prompt_head, prompt_tail]))

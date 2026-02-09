@@ -288,7 +288,7 @@ class MinimAskNewsSearcher(AskNewsSearcher):
                         strategy="news knowledge",  # looks for relevant news within the past 160 days
                     )
                 ).as_dicts
-                hot_articles = hist_hot_response if hist_full_response else []
+                hot_articles = hist_hot_response if hist_hot_response else []
                 historical_articles = hist_full_response if hist_full_response else []
                 for query in hot_queries:
                     await self.rate_limiter.acquire(1)
