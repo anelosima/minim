@@ -29,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 T_Question = TypeVar("T_Question", bound="MetaculusQuestion")
 
+type ReasoningError = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
 
 class ReasoningCheck(BaseModel):
-    error_type: Literal["NONE", "TIME", "BASE RATE", "OTHER"]
+    error_type: ReasoningError
     error_explanation: str
 
 
@@ -112,20 +113,25 @@ class Minim(SpringTemplateBot2026):
             You decide whether this reasoning has a logical error of timing or of base rate neglect, or any other serious logical error. You do not try to determine whether the reasoning is correct in any other respect, or whether the prediction is correct; you just try to detect logical errors.
             You first write your reasoning for why the system's reasoning is logically invalid.
             Next, on its own line, you write "FINAL ANSWER: " followed by "NONE" if there is no serious logical error, "TIME" if there is an error of event timing, "BASE RATE" if there is an error of base rate neglect, or "OTHER" if there is a different logical error.
-            Finally, if your answer wasn't NONE, you explain what the error was.
+            Finally, if your answer wasn't NONE, you explain what the error was on the next line. You do not need to explain anything if you answer NONE.
         """
         )
 
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
 
-        reasoningcheck: ReasoningCheck = await structure_output(
+        reasoningerror: ReasoningError = await structure_output(
             reasoning,
-            ReasoningCheck,
+            ReasoningError.__value__,
             model=self.get_llm("parser", "llm"),
             num_validation_samples=self._structure_output_validation_samples,
         )
 
-        return reasoningcheck
+        if reasoningerror == "NONE":
+            return ReasoningCheck(error_type=reasoningerror, error_explanation="")
+        else:
+            i = reasoning.casefold().find("final answer:")
+            i = reasoning.find("\n")
+            return ReasoningCheck(error_type=reasoningerror, error_explanation=reasoning[i:])
 
     async def _run_forecast_with_checking(
         self,
