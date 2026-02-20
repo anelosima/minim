@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 T_Question = TypeVar("T_Question", bound="MetaculusQuestion")
 
-type ReasoningError = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
+ReasoningError = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
+
 
 class ReasoningCheck(BaseModel):
     error_type: ReasoningError
@@ -88,8 +89,7 @@ class Minim(SpringTemplateBot2026):
     async def _validate_reasoning(
         self, question: MetaculusQuestion, prediction: ReasonedPrediction
     ) -> ReasoningCheck:
-        prompt = clean_indents(
-            f"""
+        prompt = clean_indents(f"""
             You are a component of a forecasting system.
             The forecasting system generally produces high-quality predictions, but occasionally reasons poorly.
             Your job is to check the reasoning of a prediction and ensure that it logically coheres and doesn't fall into any of a few categories of mistakes.
@@ -114,14 +114,13 @@ class Minim(SpringTemplateBot2026):
             You first write your reasoning for why the system's reasoning is logically invalid.
             Next, on its own line, you write "FINAL ANSWER: " followed by "NONE" if there is no serious logical error, "TIME" if there is an error of event timing, "BASE RATE" if there is an error of base rate neglect, or "OTHER" if there is a different logical error.
             Finally, if your answer wasn't NONE, you explain what the error was on the next line. You do not need to explain anything if you answer NONE.
-        """
-        )
+        """)
 
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
 
         reasoningerror: ReasoningError = await structure_output(
             reasoning,
-            ReasoningError.__value__,
+            ReasoningError,
             model=self.get_llm("parser", "llm"),
             num_validation_samples=self._structure_output_validation_samples,
         )
@@ -131,7 +130,9 @@ class Minim(SpringTemplateBot2026):
         else:
             i = reasoning.casefold().find("final answer:")
             i = reasoning.find("\n")
-            return ReasoningCheck(error_type=reasoningerror, error_explanation=reasoning[i:])
+            return ReasoningCheck(
+                error_type=reasoningerror, error_explanation=reasoning[i:]
+            )
 
     async def _run_forecast_with_checking(
         self,
@@ -154,13 +155,11 @@ class Minim(SpringTemplateBot2026):
                 logger.info(
                     f"Logic checker found an error of type {reasoningcheck.error_type}"
                 )
-            prompt_error = clean_indents(
-                f"""
+            prompt_error = clean_indents(f"""
              A previous attempt at forecasting this question had a logical error. This error was:
              {reasoningcheck.error_explanation}
              You should make sure to avoid this error when forecasting.
-             """
-            )
+             """)
 
             prediction = await forecast_fun(
                 question, "\n".join([prompt_head, prompt_error, prompt_tail])
@@ -172,8 +171,7 @@ class Minim(SpringTemplateBot2026):
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
 
-        prompt_head = clean_indents(
-            f"""
+        prompt_head = clean_indents(f"""
             You are a professional forecaster interviewing for a job.
 
             Your interview question is:
@@ -202,14 +200,11 @@ class Minim(SpringTemplateBot2026):
 
             You write your rationale remembering that good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time.
             {self._get_conditional_disclaimer_if_necessary(question)}
-            """
-        )
+            """)
 
-        prompt_tail = clean_indents(
-            """
+        prompt_tail = clean_indents("""
         The last thing you write is your final answer as: "Probability: ZZ%", 0-100
-        """
-        )
+        """)
 
         return await self._run_forecast_with_checking(
             question=question,
@@ -221,8 +216,7 @@ class Minim(SpringTemplateBot2026):
     async def _run_forecast_on_multiple_choice(
         self, question: MultipleChoiceQuestion, research: str
     ) -> ReasonedPrediction[PredictedOptionList]:
-        prompt_head = clean_indents(
-            f"""
+        prompt_head = clean_indents(f"""
             You are a professional forecaster interviewing for a job.
 
             Your interview question is:
@@ -251,18 +245,15 @@ class Minim(SpringTemplateBot2026):
 
             {self._get_conditional_disclaimer_if_necessary(question)}
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
-"""
-        )
+""")
 
-        prompt_tail = clean_indents(
-            f"""
+        prompt_tail = clean_indents(f"""
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
             Option_B: Probability_B
             ...
             Option_N: Probability_N
-            """
-        )
+            """)
 
         return await self._run_forecast_with_checking(
             question=question,
@@ -277,8 +268,7 @@ class Minim(SpringTemplateBot2026):
         upper_bound_message, lower_bound_message = (
             self._create_upper_and_lower_bound_messages(question)
         )
-        prompt_head = clean_indents(
-            f"""
+        prompt_head = clean_indents(f"""
             You are a professional forecaster interviewing for a job.
 
             Your interview question is:
@@ -317,10 +307,8 @@ class Minim(SpringTemplateBot2026):
             {self._get_conditional_disclaimer_if_necessary(question)}
             You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
 
-            """
-        )
-        prompt_tail = clean_indents(
-            f"""
+            """)
+        prompt_tail = clean_indents(f"""
 
             The last thing you write is your final answer as:
             "
@@ -331,8 +319,7 @@ class Minim(SpringTemplateBot2026):
             Percentile 80: XX
             Percentile 90: XX (highest number value)
             "
-            """
-        )
+            """)
 
         return await self._run_forecast_with_checking(
             question=question,
@@ -347,8 +334,7 @@ class Minim(SpringTemplateBot2026):
         upper_bound_message, lower_bound_message = (
             self._create_upper_and_lower_bound_messages(question)
         )
-        prompt_head = clean_indents(
-            f"""
+        prompt_head = clean_indents(f"""
             You are a professional forecaster interviewing for a job.
 
             Your interview question is:
@@ -386,11 +372,9 @@ class Minim(SpringTemplateBot2026):
             {self._get_conditional_disclaimer_if_necessary(question)}
             You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
 
-            """
-        )
+            """)
 
-        prompt_tail = clean_indents(
-            f"""
+        prompt_tail = clean_indents(f"""
 
             The last thing you write is your final answer as:
             "
@@ -401,8 +385,7 @@ class Minim(SpringTemplateBot2026):
             Percentile 80: YYYY-MM-DD
             Percentile 90: YYYY-MM-DD (newest date)
             "
-            """
-        )
+            """)
 
         return await self._run_forecast_with_checking(
             question=question,
