@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 T_Question = TypeVar("T_Question", bound="MetaculusQuestion")
 
+reasoning_errors = ["NONE", "TIME", "BASE RATE", "OTHER"]
 ReasoningError = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
 
 
@@ -98,7 +99,8 @@ class Minim(SpringTemplateBot2026):
             The categories of errors you are looking out for are as follows:
             1. Errors of event timing. Sometimes, the question to forecast will be about something which is revealed at a later date than it is determined. For instance, a question might be "How well will AI do in this 2026 prediction contest?" and predictions are registered in January 2026, then scored in December 2026. It is logically incorrect to consider improvements in AI technology over the course of 2026; the only thing that can affect the results of the contest is how the technology stands in January 2026. Likewise, if a question asks "What will be the reported income of Apple in its December 2025 earnings report?" and the report will be released in February 2026, it would be an error to consider changes in income that might occur in January 2026, since they could not affect the report.
             2. Errors of considering the "status quo" to be something other than the base rate. The system is biased towards the "status quo" outcome since the world changes slowly most of the time. However, it sometimes makes an error in determining what the status quo is. For instance, if recently the WHO has reported a public health emergency in one out of three years, it is a logical mistake to reason that the "status quo" is no public health emergency and to thus predict a public health emergency with a chance of less than one in three. The status quo that should be biased towards is the recent base rate, not anything else. This category does not apply to any reasoning which does not explicitly cite the "nothing happens"/"status quo" bias as a reason to predict something other than the base rate.
-
+            3. Other logical errors. You are only looking for errors of logic, not of fact.
+        
             The question that the system has forecast is:
             {question.question_text}
 
@@ -118,18 +120,37 @@ class Minim(SpringTemplateBot2026):
 
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
 
-        reasoningerror: ReasoningError = await structure_output(
-            reasoning,
-            ReasoningError,
-            model=self.get_llm("parser", "llm"),
-            num_validation_samples=self._structure_output_validation_samples,
-        )
+        answerindex = reasoning.casefold().find("final answer:")
+
+        reasoningerror = "NONE"
+
+        # parsing llms hate giving literals in json format apparently; try to avoid this by checking for the return string explicitly
+        if answerindex != -1:
+            answers = [(a, reasoning.find(answerindex, a)) for a in reasoning_errors]
+            answers = [t for t in answers if t[1] != -1]
+            if answers:
+                reasoningerror = min(answers, key=lambda t: t[1])[0]
+        else:
+            try:
+                reasoningerror: ReasoningError = await structure_output(
+                    reasoning,
+                    ReasoningError,
+                    model=self.get_llm("parser", "llm"),
+                    num_validation_samples=self._structure_output_validation_samples,
+                )
+            except ValueError as e:
+                logger.warning(e)
 
         if reasoningerror == "NONE":
             return ReasoningCheck(error_type=reasoningerror, error_explanation="")
         else:
             i = reasoning.casefold().find("final answer:")
-            i = reasoning.find("\n")
+            i = reasoning.find(i, "\n")
+            if i == -1:
+                logger.warning(
+                    "Logic checker response had no 'final answer:' delimiter."
+                )
+                i = 0
             return ReasoningCheck(
                 error_type=reasoningerror, error_explanation=reasoning[i:]
             )
