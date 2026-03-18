@@ -17,7 +17,6 @@ from minim.researcher import MinimResearcher
 from minim.minim import Minim
 from minim.ratelimiter import RateLimitedLlm
 
-
 dotenv.load_dotenv()
 logger = logging.getLogger(__name__)
 
@@ -91,7 +90,7 @@ if __name__ == "__main__":
         extra_metadata_in_explanation=True,
         llms={
             "default": RateLimitedLlm(
-                model="openrouter/openai/gpt-5.2",
+                model="openrouter/openai/gpt-5.4",
                 rate_limiter=AsyncLimiter(500),
                 reasoning_effort="high",
                 temperature=0.3,
