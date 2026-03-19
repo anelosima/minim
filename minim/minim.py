@@ -128,13 +128,6 @@ class Minim(SpringTemplateBot2026):
 
         reasoningerror = ReasoningError(error_type="NONE")
 
-        # parsing llms hate giving literals in json format apparently; try to avoid this by checking for the return string explicitly
-        # if answerindex != -1:
-        #     answers = [(a, reasoning.find(a, answerindex)) for a in reasoning_errors]
-        #     answers = [t for t in answers if t[1] != -1]
-        #     if answers:
-        #         reasoningerror = min(answers, key=lambda t: t[1])[0]
-        # else:
         try:
             reasoningerror: ReasoningError = await structure_output(
                 reasoning,
