@@ -2,7 +2,7 @@
 from types import CoroutineType
 from datetime import datetime
 from pydantic import BaseModel
-from typing import Literal, Tuple, Callable, Awaitable, Any, TypeVar
+from typing import Literal, Tuple, Callable, Awaitable, Any, TypeVar, TypeAlias
 import logging
 import asyncio
 from forecasting_tools import (
@@ -29,12 +29,16 @@ logger = logging.getLogger(__name__)
 
 T_Question = TypeVar("T_Question", bound="MetaculusQuestion")
 
-reasoning_errors = ["NONE", "TIME", "BASE RATE", "OTHER"]
-ReasoningError = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
+reasoning_errors = ("NONE", "TIME", "BASE RATE", "OTHER")
+ReasoningErrorType: TypeAlias = Literal["NONE", "TIME", "BASE RATE", "OTHER"]
+
+
+class ReasoningError(BaseModel):
+    error_type: ReasoningErrorType
 
 
 class ReasoningCheck(BaseModel):
-    error_type: ReasoningError
+    error_type: ReasoningErrorType
     error_explanation: str
 
 
@@ -122,37 +126,39 @@ class Minim(SpringTemplateBot2026):
 
         answerindex = reasoning.casefold().find("final answer:")
 
-        reasoningerror = "NONE"
+        reasoningerror = ReasoningError(error_type="NONE")
 
         # parsing llms hate giving literals in json format apparently; try to avoid this by checking for the return string explicitly
-        if answerindex != -1:
-            answers = [(a, reasoning.find(answerindex, a)) for a in reasoning_errors]
-            answers = [t for t in answers if t[1] != -1]
-            if answers:
-                reasoningerror = min(answers, key=lambda t: t[1])[0]
-        else:
-            try:
-                reasoningerror: ReasoningError = await structure_output(
-                    reasoning,
-                    ReasoningError,
-                    model=self.get_llm("parser", "llm"),
-                    num_validation_samples=self._structure_output_validation_samples,
-                )
-            except ValueError as e:
-                logger.warning(e)
+        # if answerindex != -1:
+        #     answers = [(a, reasoning.find(a, answerindex)) for a in reasoning_errors]
+        #     answers = [t for t in answers if t[1] != -1]
+        #     if answers:
+        #         reasoningerror = min(answers, key=lambda t: t[1])[0]
+        # else:
+        try:
+            reasoningerror: ReasoningError = await structure_output(
+                reasoning,
+                ReasoningError,
+                model=self.get_llm("parser", "llm"),
+                num_validation_samples=self._structure_output_validation_samples,
+            )
+        except ValueError as e:
+            logger.warning(e)
 
-        if reasoningerror == "NONE":
-            return ReasoningCheck(error_type=reasoningerror, error_explanation="")
+        if reasoningerror.error_type == "NONE":
+            return ReasoningCheck(
+                error_type=reasoningerror.error_type, error_explanation=""
+            )
         else:
             i = reasoning.casefold().find("final answer:")
-            i = reasoning.find(i, "\n")
+            i = reasoning.find("\n", i)
             if i == -1:
                 logger.warning(
                     "Logic checker response had no 'final answer:' delimiter."
                 )
                 i = 0
             return ReasoningCheck(
-                error_type=reasoningerror, error_explanation=reasoning[i:]
+                error_type=reasoningerror.error_type, error_explanation=reasoning[i:]
             )
 
     async def _run_forecast_with_checking(
